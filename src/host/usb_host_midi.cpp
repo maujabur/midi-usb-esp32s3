@@ -117,12 +117,41 @@ void clientEventCb(const usb_host_client_event_msg_t *msg, void *) {
   }
 }
 
+volatile uint32_t g_libEvents = 0;  // diagnostico: chamadas a lib que retornaram
+
 void libTask(void *) {
   for (;;) {
-    uint32_t flags;
-    usb_host_lib_handle_events(portMAX_DELAY, &flags);
+    uint32_t flags = 0;
+    esp_err_t err = usb_host_lib_handle_events(portMAX_DELAY, &flags);
+    g_libEvents = g_libEvents + 1;
+    if (err != ESP_OK) Serial.printf("[usb-lib] handle_events: %s\n", esp_err_to_name(err));
+    if (flags) Serial.printf("[usb-lib] flags=0x%lx\n", (unsigned long)flags);
     if (flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) usb_host_device_free_all();
   }
+}
+
+// Chamado pela lib no meio da enumeracao, logo apos ler o device descriptor.
+// Se isto aparecer no log, a comunicacao basica com o dispositivo funciona.
+bool enumFilterCb(const usb_device_desc_t *d, uint8_t *bConfigurationValue) {
+  Serial.printf("[enum] device descriptor: VID=%04x PID=%04x classe=%02x/%02x/%02x "
+                "ep0=%u configs=%u usb=%04x -> config %u\n",
+                d->idVendor, d->idProduct, d->bDeviceClass, d->bDeviceSubClass,
+                d->bDeviceProtocol, d->bMaxPacketSize0, d->bNumConfigurations, d->bcdUSB,
+                *bConfigurationValue);
+  return true;  // aceita o dispositivo
+}
+
+// Registra toda mudanca na porta raiz (conexao, reset, habilitacao).
+void logPortChanges() {
+  static uint32_t last = 0xFFFFFFFF;
+  uint32_t hprt = USB_DWC.hprt_reg.val & ((1u << 0) | (1u << 2) | (3u << 10) | (1u << 12) | (1u << 8) | (3u << 17));
+  if (hprt == last) return;
+  last = hprt;
+  Serial.printf("[porta] t=%lu conn=%lu ena=%lu reset=%lu D+=%lu D-=%lu pwr=%lu spd=%lu\n",
+                (unsigned long)millis(), (unsigned long)(hprt & 1), (unsigned long)((hprt >> 2) & 1),
+                (unsigned long)((hprt >> 8) & 1), (unsigned long)((hprt >> 10) & 1),
+                (unsigned long)((hprt >> 11) & 1), (unsigned long)((hprt >> 12) & 1),
+                (unsigned long)((hprt >> 17) & 3));
 }
 
 void clientTask(void *) {
@@ -138,6 +167,8 @@ void clientTask(void *) {
       if (!g_dev) openDevice(g_pendingNew[i]);
     }
     g_pendingNewCount = 0;
+
+    logPortChanges();
 
     // Diagnostico: quantos dispositivos a lib enumerou (hub incluso).
     uint32_t now = millis();
@@ -172,7 +203,14 @@ bool UsbHostMidiOut::begin() {
   g_queue = xQueueCreate(32, sizeof(uint32_t));
   if (!g_queue) return false;
 
-  const usb_host_config_t hostCfg = {.skip_phy_setup = false, .intr_flags = ESP_INTR_FLAG_LEVEL1};
+  usb_host_config_t hostCfg = {};
+  hostCfg.skip_phy_setup = false;
+  hostCfg.intr_flags = ESP_INTR_FLAG_LEVEL1;
+  // NAO REMOVER: o core vem com CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK=y.
+  // Sem este callback a porta ficava habilitada mas a enumeracao nunca
+  // terminava; com ele o FM1 passou a enumerar. Unica mudanca funcional entre
+  // a versao que falhava e a que funcionou (causa exata nao confirmada).
+  hostCfg.enum_filter_cb = enumFilterCb;
   esp_err_t err = usb_host_install(&hostCfg);
   Serial.printf("[usb-host] usb_host_install: %s\n", esp_err_to_name(err));
   if (err != ESP_OK) return false;
@@ -217,6 +255,10 @@ void UsbHostMidiOut::dumpDiag() const {
   Serial.printf("[diag] USJ=0x%08lx phy_sel=%lu pad_en=%lu pull_ovr=%lu dp_pu=%lu\n",
                 (unsigned long)usj, (unsigned long)(usj & 1), (unsigned long)((usj >> 14) & 1),
                 (unsigned long)((usj >> 8) & 1), (unsigned long)((usj >> 9) & 1));
+  usb_host_lib_info_t info = {};
+  if (usb_host_lib_info(&info) == ESP_OK)
+    Serial.printf("[diag] lib: devices=%d clients=%d eventos=%lu\n", info.num_devices,
+                  info.num_clients, (unsigned long)g_libEvents);
 }
 
 void UsbHostMidiOut::send(uint8_t status, uint8_t d1, uint8_t d2) {
