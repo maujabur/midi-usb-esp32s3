@@ -6,9 +6,12 @@
 #include <freertos/task.h>
 #include <string.h>
 #include <usb/usb_host.h>
+
+#if USB_HOST_DIAG
 #include <soc/usb_dwc_struct.h>
 #include <soc/usb_serial_jtag_reg.h>
 #include <soc/usb_wrap_reg.h>
+#endif
 
 namespace {
 
@@ -83,13 +86,12 @@ void openDevice(uint8_t addr) {
 
   const usb_device_desc_t *dd;
   usb_host_get_device_descriptor(dev, &dd);
-  Serial.printf("[usb-host] dispositivo VID=%04x PID=%04x\n", dd->idVendor, dd->idProduct);
 
   const usb_config_desc_t *cfg;
   uint8_t iface = 0, alt = 0, ep = 0;
   if (usb_host_get_active_config_descriptor(dev, &cfg) != ESP_OK ||
       !findMidiOut(cfg, iface, alt, ep)) {
-    Serial.println("[usb-host] sem interface MIDIStreaming/endpoint bulk OUT");
+    Serial.printf("[usb-host] %04x:%04x nao e MIDI, ignorado\n", dd->idVendor, dd->idProduct);
     usb_host_device_close(g_client, dev);
     return;
   }
@@ -104,12 +106,15 @@ void openDevice(uint8_t addr) {
   g_busy = false;
   xQueueReset(g_queue);
   g_connected = true;
-  Serial.printf("[usb-host] MIDI pronto: interface %u, EP OUT 0x%02x\n", iface, ep);
+  Serial.printf("[usb-host] MIDI pronto: %04x:%04x interface %u, EP OUT 0x%02x\n", dd->idVendor,
+                dd->idProduct, iface, ep);
 }
 
 void clientEventCb(const usb_host_client_event_msg_t *msg, void *) {
   if (msg->event == USB_HOST_CLIENT_EVENT_NEW_DEV) {
+#if USB_HOST_DIAG
     Serial.printf("[usb-host] NEW_DEV endereco %u\n", msg->new_dev.address);
+#endif
     if (g_pendingNewCount < MAX_PENDING) g_pendingNew[g_pendingNewCount++] = msg->new_dev.address;
   } else if (msg->event == USB_HOST_CLIENT_EVENT_DEV_GONE) {
     // So fecha se foi o nosso dispositivo (com hub, outros podem sair).
@@ -125,22 +130,23 @@ void libTask(void *) {
     esp_err_t err = usb_host_lib_handle_events(portMAX_DELAY, &flags);
     g_libEvents = g_libEvents + 1;
     if (err != ESP_OK) Serial.printf("[usb-lib] handle_events: %s\n", esp_err_to_name(err));
+#if USB_HOST_DIAG
     if (flags) Serial.printf("[usb-lib] flags=0x%lx\n", (unsigned long)flags);
+#endif
     if (flags & USB_HOST_LIB_EVENT_FLAGS_NO_CLIENTS) usb_host_device_free_all();
   }
 }
 
 // Chamado pela lib no meio da enumeracao, logo apos ler o device descriptor.
-// Se isto aparecer no log, a comunicacao basica com o dispositivo funciona.
+// Registrar este callback e o que faz a enumeracao funcionar (ver begin()).
 bool enumFilterCb(const usb_device_desc_t *d, uint8_t *bConfigurationValue) {
-  Serial.printf("[enum] device descriptor: VID=%04x PID=%04x classe=%02x/%02x/%02x "
-                "ep0=%u configs=%u usb=%04x -> config %u\n",
-                d->idVendor, d->idProduct, d->bDeviceClass, d->bDeviceSubClass,
-                d->bDeviceProtocol, d->bMaxPacketSize0, d->bNumConfigurations, d->bcdUSB,
-                *bConfigurationValue);
-  return true;  // aceita o dispositivo
+  Serial.printf("[enum] VID=%04x PID=%04x classe=%02x/%02x/%02x usb=%04x\n", d->idVendor,
+                d->idProduct, d->bDeviceClass, d->bDeviceSubClass, d->bDeviceProtocol,
+                d->bcdUSB);
+  return true;  // aceita o dispositivo, com a configuracao padrao
 }
 
+#if USB_HOST_DIAG
 // Registra toda mudanca na porta raiz (conexao, reset, habilitacao).
 void logPortChanges() {
   static uint32_t last = 0xFFFFFFFF;
@@ -153,6 +159,7 @@ void logPortChanges() {
                 (unsigned long)((hprt >> 11) & 1), (unsigned long)((hprt >> 12) & 1),
                 (unsigned long)((hprt >> 17) & 3));
 }
+#endif
 
 void clientTask(void *) {
   uint32_t lastPoll = 0;
@@ -168,16 +175,20 @@ void clientTask(void *) {
     }
     g_pendingNewCount = 0;
 
+#if USB_HOST_DIAG
     logPortChanges();
+#endif
 
-    // Diagnostico: quantos dispositivos a lib enumerou (hub incluso).
+    // Quantos dispositivos a lib enumerou (hub incluso): usado pelo LED amarelo.
     uint32_t now = millis();
     if (now - lastPoll >= 200) {
       lastPoll = now;
       uint8_t addrs[16];
       int n = 0;
       if (usb_host_device_addr_list_fill(sizeof(addrs), addrs, &n) == ESP_OK) {
+#if USB_HOST_DIAG
         if (n != g_busDevices) Serial.printf("[usb-host] dispositivos no barramento: %d\n", n);
+#endif
         g_busDevices = n;
       }
     }
@@ -212,8 +223,10 @@ bool UsbHostMidiOut::begin() {
   // a versao que falhava e a que funcionou (causa exata nao confirmada).
   hostCfg.enum_filter_cb = enumFilterCb;
   esp_err_t err = usb_host_install(&hostCfg);
-  Serial.printf("[usb-host] usb_host_install: %s\n", esp_err_to_name(err));
-  if (err != ESP_OK) return false;
+  if (err != ESP_OK) {
+    Serial.printf("[usb-host] usb_host_install: %s\n", esp_err_to_name(err));
+    return false;
+  }
 
   usb_host_client_config_t clientCfg = {};
   clientCfg.is_synchronous = false;
@@ -221,13 +234,14 @@ bool UsbHostMidiOut::begin() {
   clientCfg.async.client_event_callback = clientEventCb;
   clientCfg.async.callback_arg = nullptr;
   err = usb_host_client_register(&clientCfg, &g_client);
-  Serial.printf("[usb-host] usb_host_client_register: %s\n", esp_err_to_name(err));
-  if (err != ESP_OK) return false;
+  if (err != ESP_OK) {
+    Serial.printf("[usb-host] usb_host_client_register: %s\n", esp_err_to_name(err));
+    return false;
+  }
   if (usb_host_transfer_alloc(64, 0, &g_xfer) != ESP_OK) return false;
 
   xTaskCreate(libTask, "usbh_lib", 4096, nullptr, 20, nullptr);
   xTaskCreate(clientTask, "usbh_client", 4096, nullptr, 19, nullptr);
-  Serial.println("[usb-host] host iniciado, aguardando dispositivos");
   return true;
 }
 
@@ -238,6 +252,7 @@ bool UsbHostMidiOut::deviceSeen() const { return g_busDevices > 0; }
 // Diagnostico de baixo nivel: estado da porta do controlador OTG e de quem
 // esta com o PHY interno (OTG ou USB-Serial/JTAG). So leitura de registradores.
 void UsbHostMidiOut::dumpDiag() const {
+#if USB_HOST_DIAG
   uint32_t hprt = USB_DWC.hprt_reg.val;
   Serial.printf("[diag] HPRT=0x%08lx conn=%lu ena=%lu linha(D+=%lu D-=%lu) pwr=%lu spd=%lu\n",
                 (unsigned long)hprt, (unsigned long)(hprt & 1), (unsigned long)((hprt >> 2) & 1),
@@ -259,6 +274,7 @@ void UsbHostMidiOut::dumpDiag() const {
   if (usb_host_lib_info(&info) == ESP_OK)
     Serial.printf("[diag] lib: devices=%d clients=%d eventos=%lu\n", info.num_devices,
                   info.num_clients, (unsigned long)g_libEvents);
+#endif
 }
 
 void UsbHostMidiOut::send(uint8_t status, uint8_t d1, uint8_t d2) {

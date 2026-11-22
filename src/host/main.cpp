@@ -16,8 +16,9 @@ SequencePlayer player(midiOut, TEST_SEQUENCE, TEST_SEQUENCE_LEN);
 // LED RGB onboard (WS2812, GPIO21 no S3-Zero).
 // Magenta = host USB nao iniciou. Azul = nenhum dispositivo no barramento.
 // Amarelo = algum dispositivo enumerado (ex.: so o hub), mas nenhum MIDI.
-// Verde = FM1 enumerado. Branco = nota ativa. O WS2812 do S3-Zero usa GRB, mas a variante declara RGB,
-// entao trocamos aqui, com RGB real nos argumentos.
+// Verde = FM1 enumerado. Branco = nota ativa.
+// O WS2812 do S3-Zero usa GRB, mas a variante declara RGB, entao trocamos
+// aqui, com RGB real nos argumentos.
 static void setLed(uint8_t r, uint8_t g, uint8_t b) { rgbLedWrite(RGB_BUILTIN, g, r, b); }
 
 static bool hostOk = false;
@@ -47,18 +48,21 @@ void setup() {
   Serial.println("\n[host] boot");
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);  // BOOT: nivel baixo = pressionado
   hostOk = midiOut.begin();
-  if (!hostOk) Serial.println("[usb-host] falha ao iniciar o host USB");
+  Serial.println(hostOk ? "[host] host USB iniciado, aguardando dispositivos"
+                        : "[host] falha ao iniciar o host USB");
 }
 
 void loop() {
   updateLed();
+#if USB_HOST_DIAG
   static uint32_t lastBeat = 0;
-  if (millis() - lastBeat >= 5000) {  // sinal de vida no log
+  if (millis() - lastBeat >= 5000) {  // sinal de vida + registradores
     lastBeat = millis();
     Serial.printf("[host] vivo: host=%d dispositivos=%d midi=%d\n", hostOk,
                   midiOut.deviceSeen(), midiOut.connected());
     if (!midiOut.connected()) midiOut.dumpDiag();
   }
+#endif
   switch (button.update(digitalRead(BOOT_BUTTON_PIN) == LOW, millis())) {
     case ButtonEvent::Pressed:
       player.onPress();

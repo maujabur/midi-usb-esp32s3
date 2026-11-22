@@ -3,6 +3,11 @@
 
 #include "midi_out.h"
 
+// 1 = logs detalhados (mudancas na porta, registradores a cada 5 s).
+#ifndef USB_HOST_DIAG
+#define USB_HOST_DIAG 0
+#endif
+
 // Saida MIDI via USB Host (ESP-IDF usb_host). O ESP32-S3 faz o papel do
 // computador: enumera o dispositivo (ex.: M-Vave FM1), acha a interface
 // MIDIStreaming e envia pacotes USB-MIDI pelo endpoint bulk OUT.
@@ -22,6 +27,7 @@ public:
   bool deviceSeen() const;
 
   // Imprime no Serial o estado dos registradores USB (porta OTG e PHY).
+  // So faz algo se compilado com -DUSB_HOST_DIAG=1.
   void dumpDiag() const;
 
   void noteOn(uint8_t note, uint8_t velocity, uint8_t channel) override;
