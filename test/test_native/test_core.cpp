@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "button_fsm.h"
+#include "midi_router.h"
 #include "note_sequence.h"
 
 struct Msg {
@@ -77,8 +78,71 @@ void test_duplicate_events_ignored() {
   TEST_ASSERT_EQUAL(1, out.log.size());
 }
 
+// --- roteador ---
+
+void test_router_forces_channel() {
+  RouterConfig cfg;  // forceChannel = 1
+  uint8_t p[4] = {0x09, 0x99, 36, 100};  // Note On canal 10 (pads)
+  TEST_ASSERT_TRUE(midi_router::filter(cfg, p));
+  TEST_ASSERT_EQUAL_HEX8(0x90, p[1]);
+  TEST_ASSERT_EQUAL(36, p[2]);
+  TEST_ASSERT_EQUAL(100, p[3]);
+}
+
+void test_router_keeps_channel_when_disabled() {
+  RouterConfig cfg;
+  cfg.forceChannel = 0;
+  uint8_t p[4] = {0x0B, 0xB4, 7, 64};  // CC canal 5
+  TEST_ASSERT_TRUE(midi_router::filter(cfg, p));
+  TEST_ASSERT_EQUAL_HEX8(0xB4, p[1]);
+}
+
+void test_router_drops_sysex_clock_and_other_cables() {
+  RouterConfig cfg;
+  uint8_t sysex[4] = {0x04, 0xF0, 0x43, 0x10};
+  uint8_t clock[4] = {0x0F, 0xF8, 0, 0};
+  uint8_t sensing[4] = {0x0F, 0xFE, 0, 0};
+  uint8_t cable1[4] = {0x19, 0x90, 60, 100};
+  uint8_t padding[4] = {0, 0, 0, 0};
+  TEST_ASSERT_FALSE(midi_router::filter(cfg, sysex));
+  TEST_ASSERT_FALSE(midi_router::filter(cfg, clock));
+  TEST_ASSERT_FALSE(midi_router::filter(cfg, sensing));
+  TEST_ASSERT_FALSE(midi_router::filter(cfg, cable1));
+  TEST_ASSERT_FALSE(midi_router::filter(cfg, padding));
+}
+
+void test_router_passes_sysex_when_allowed() {
+  RouterConfig cfg;
+  cfg.channelMessagesOnly = false;
+  uint8_t sysex[4] = {0x04, 0xF0, 0x43, 0x10};
+  TEST_ASSERT_TRUE(midi_router::filter(cfg, sysex));
+  TEST_ASSERT_EQUAL_HEX8(0xF0, sysex[1]);  // canal so mexe em mensagem de canal
+}
+
+void test_router_destinations_exclude_source() {
+  const uint32_t outs = 0b1011;  // aparelhos 0, 1 e 3 recebem
+  TEST_ASSERT_EQUAL_HEX32(0b1010, midi_router::destinations(outs, 0));
+  TEST_ASSERT_EQUAL_HEX32(0b1011, midi_router::destinations(outs, 2));  // 2 so envia
+  TEST_ASSERT_EQUAL_HEX32(0b1011, midi_router::destinations(outs, midi_router::LOCAL_SOURCE));
+}
+
+void test_router_note_on_detection() {
+  const uint8_t on[4] = {0x09, 0x90, 60, 100};
+  const uint8_t onZero[4] = {0x09, 0x90, 60, 0};  // Note On vel 0 = Note Off
+  const uint8_t off[4] = {0x08, 0x80, 60, 0};
+  TEST_ASSERT_TRUE(midi_router::isNoteOn(on));
+  TEST_ASSERT_FALSE(midi_router::isNoteOn(onZero));
+  TEST_ASSERT_FALSE(midi_router::isNoteOn(off));
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_router_forces_channel);
+  RUN_TEST(test_router_keeps_channel_when_disabled);
+  RUN_TEST(test_router_drops_sysex_clock_and_other_cables);
+  RUN_TEST(test_router_passes_sysex_when_allowed);
+  RUN_TEST(test_router_destinations_exclude_source);
+  RUN_TEST(test_router_note_on_detection);
   RUN_TEST(test_debounce_ignores_bounce);
   RUN_TEST(test_debounce_release);
   RUN_TEST(test_sequence_length);

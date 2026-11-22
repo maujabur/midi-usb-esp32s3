@@ -13,6 +13,7 @@ ESP32-S3 no papel de host USB.
 | Perfil | Papel do S3 | Código |
 |---|---|---|
 | `s3zero_host` | **Host USB**: enumera o FM1 e envia MIDI | `src/host/` |
+| `s3zero_router` | **Host USB + roteador**: vários aparelhos MIDI no hub, o que um envia os outros recebem | `src/router/` + `src/common/` |
 | `s3zero` | Dispositivo USB MIDI (aparece como teclado no PC) | `src/device/` |
 | `serial_bridge` | Ferramenta de desenvolvimento: adaptador USB-serial, para ler o log do `s3zero_host` | `src/serial_bridge/` |
 | `native` | Testes da lógica no PC, sem hardware | `test/` |
@@ -74,6 +75,41 @@ apresente como host/fonte no USB-C.
 | Amarelo | Algum dispositivo enumerado (por exemplo, só o hub), mas nenhum MIDI |
 | Verde | FM1 pronto |
 | Branco | Nota tocando |
+
+## Roteador (`s3zero_router`)
+
+Ainda não testado no hardware. A montagem é a mesma do `s3zero_host`, com mais
+aparelhos MIDI no hub (teclado, pads, knobs):
+
+- **Regra:** o que chega de um aparelho vai para todos os outros, nunca de volta
+  para quem enviou. O botão BOOT toca a sequência de teste para todos.
+- **Filtros padrão** (`lib/core/midi_router.h`):
+  - só o cabo virtual 0;
+  - só mensagens de canal (nota, CC, program change, pitch bend, aftertouch),
+    então SysEx, clock e active sensing são descartados;
+  - canal forçado para 1, o canal de notas padrão do FM1. Mude com
+    `-DROUTER_FORCE_CHANNEL=N`, ou use `0` para manter o canal original.
+- **Limites:**
+  - até 4 aparelhos MIDI;
+  - o ESP32-S3 tem **8 canais de hardware USB para tudo**. Pelo que entendo
+    da alocação do IDF (não medido aqui), cada aparelho, hubs inclusive, usa 1
+    canal para o controle, e cada endpoint MIDI usa mais 1. Um hub
+    simples deixa mais canais livres que um dock com placa de rede. Se faltar
+    canal, o log mostra `falha ao abrir interface`.
+- **Loop:** se dois aparelhos reenviam o que recebem (MIDI thru), as mensagens
+  podem circular entre eles.
+
+| Cor do LED | Significado |
+|---|---|
+| Magenta | O host USB não iniciou |
+| Azul | Nenhum aparelho MIDI |
+| Amarelo | Um aparelho MIDI (nada para rotear ainda) |
+| Verde | Dois ou mais, roteando |
+| Piscada azul clara | Nota repassada entre aparelhos |
+| Branco | Nota do botão BOOT tocando |
+
+Com `-DUSB_HOST_DIAG=1`, cada pacote roteado aparece no log como
+`[midi] origem -> máscara de destinos: bytes`.
 
 ## Log e ponte serial
 
