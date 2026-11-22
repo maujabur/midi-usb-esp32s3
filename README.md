@@ -14,7 +14,7 @@ ESP32-S3 no papel de host USB.
 |---|---|---|
 | `s3zero_host` | **Host USB**: enumera o FM1 e envia MIDI | `src/host/` |
 | `s3zero` | Dispositivo USB MIDI (aparece como teclado no PC) | `src/device/` |
-| `bridge` | Adaptador USB-serial, para ler o log do `s3zero_host` | `src/bridge/` |
+| `serial_bridge` | Ferramenta de desenvolvimento: adaptador USB-serial, para ler o log do `s3zero_host` | `src/serial_bridge/` |
 | `native` | Testes da lógica no PC, sem hardware | `test/` |
 
 A lógica comum (debounce do botão, sequência de notas e a interface
@@ -48,7 +48,7 @@ fonte PD ── hub ── cabo C-C ── S3-Zero (sem modificação)
   - Sem hub, alimente a S3-Zero pelo pino 5V. O VBUS da placa é ligado direto
     ao pino 5V, sem diodo, então os 5 V chegam ao FM1.
   - Use **uma fonte de 5 V só**. Como não há diodo, duas fontes no mesmo VBUS
-    (por exemplo, hub PD e o 5V do bridge) ficam ligadas entre si.
+    (por exemplo, hub PD e o 5V da ponte serial) ficam ligadas entre si.
 
 ### Placa de diagnóstico A/B (opcional)
 
@@ -78,7 +78,7 @@ apresente como host/fonte no USB-C.
 ## Log e ponte serial
 
 O `s3zero_host` escreve o log na UART0, a 115200. Sem um adaptador USB-serial,
-use uma segunda S3-Zero com o perfil `bridge`:
+use uma segunda S3-Zero com o perfil `serial_bridge`:
 
 | Ponte | Alvo (`s3zero_host`) |
 |---|---|
@@ -90,8 +90,8 @@ Não ligue 5V entre as placas se o alvo já tiver outra fonte (veja
 Alimentação).
 
 ```
-pio run -e bridge -t upload
-pio device monitor -e bridge
+pio run -e serial_bridge -t upload
+pio device monitor -e serial_bridge
 ```
 
 Log normal com hub:

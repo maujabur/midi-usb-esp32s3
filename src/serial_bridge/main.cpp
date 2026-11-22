@@ -1,3 +1,4 @@
+// Ferramenta de desenvolvimento (perfil serial_bridge), nao faz parte do produto.
 // Ponte USB <-> UART: transforma um ESP32-S3 Zero num adaptador USB-serial
 // para ler o log da placa do perfil s3zero_host.
 //
