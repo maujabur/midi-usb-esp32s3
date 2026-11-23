@@ -15,6 +15,7 @@ ESP32-S3 no papel de host USB.
 | `s3zero_host` | **Host USB**: enumera o FM1 e envia MIDI | `src/host/` |
 | `s3zero_router` | **Host USB + roteador**: vários aparelhos MIDI no hub, o que um envia os outros recebem | `src/router/` + `src/common/` |
 | `s3zero_device` | Dispositivo USB MIDI (aparece como teclado no PC, celular ou no `s3zero_router`) | `src/device/` |
+| `s3zero_host_harpa_vl53l1x` | **Host USB + harpa laser**: 10 sensores VL53L1X, cada um uma corda que toca no FM1 | `src/harpa/` + `lib/harpa/` |
 | `serial_bridge` | Ferramenta de desenvolvimento: adaptador USB-serial, para ler o log do `s3zero_host` | `src/serial_bridge/` |
 | `native` | Testes da lógica no PC, sem hardware | `test/` |
 
@@ -65,6 +66,56 @@ apresente como host/fonte no USB-C.
 - **Serve para diagnóstico**: dá acesso a D+, D−, VBUS e CC para medir com o
   multímetro. Com o FM1 conectado e se anunciando, D+ fica perto de 3 V e o CC
   ativo perto de 0,42 V.
+
+## Harpa laser (`s3zero_host_harpa_vl53l1x`)
+
+Ainda não testado no hardware. Compila e os testes da lógica passam no PC.
+
+Cada sensor VL53L1X é uma corda: distância abaixo do `trigger` envia Note On,
+acima do `release` envia Note Off. A saída é USB host para o FM1, como no
+`s3zero_host`. Tudo que se edita fica em **`lib/harpa/harpa_config.h`**, e
+erros de configuração quebram a compilação:
+
+- `SENSOR_CONFIGS`: uma linha por corda (XSHUT, endereço I2C, ROI, trigger,
+  release). O número de cordas é o tamanho da tabela (máximo 16).
+- Escala: `ROOT_NOTE` e `SCALE_INTERVALS`. O padrão é Rendez-Vous II
+  (`0 5 7 8 10 11 12 14 15 17 19 20`) a partir de C3 (nota 48); só os primeiros
+  intervalos, até o número de cordas, são usados.
+- Validações: pino ou endereço repetido, 0x29 como endereço final, GPIO fora do
+  que a S3-Zero oferece, ROI inválida, release ≤ trigger, escala curta demais.
+
+**Ligação** (diagrama em `images/ESP32-S3-Zero-Pinout.png`): SDA = GPIO1,
+SCL = GPIO2 (400 kHz), XSHUT nos GPIO 4 a 13, nessa ordem, com endereços 0x30
+a 0x39. Os pinos 0, 3, 19, 20, 21, 43 e 44 ficam livres de propósito (BOOT,
+strapping, USB, LED, UART0). Não ligue XSHUT a 3,3 V: o
+firmware o mantém em reset e depois o solta como entrada, deixando o pull-up
+do módulo conduzir.
+
+**BOOT e LED:** o botão BOOT toca a sequência de teste, como nos outros
+perfis, mesmo que nenhum sensor tenha iniciado. O LED segue as cores do
+`s3zero_host`, com uma a mais: **ciano** quando o FM1 está pronto mas faltam
+sensores (verde só com todos no ar). Branco = corda ou botão tocando.
+
+**Latência:** cada volta do loop lê só os sensores que têm amostra nova (sem
+nunca esperar por medição) e começa a consultar cada um poucos ms antes do fim
+do período de 20 ms. A distância fica guardada no cache de cada corda para o
+uso futuro como expressão.
+
+**Sensores ausentes:** um sensor que não sobe no boot, ou que fica 1 s sem
+amostras, é reiniciado a cada 5 s, um por vez e só com todas as cordas soltas,
+porque a tentativa bloqueia o loop por até ~100 ms. Os pinos e prazos estão no
+mesmo arquivo de configuração.
+
+**Log** (UART0, 115200): `Lidars available: N/10`, uma linha por sensor, e
+`String 3 PRESSED` / `String 3 RELEASED` a cada mudança. Com
+`-DHARPA_TELEMETRY=1` no perfil, uma linha `DIST` a cada 100 ms:
+
+```
+DIST 0:742:6:VALID:ACTIVE 1:X:0:INVALID:IDLE ...
+```
+
+Cada campo é `índice:distância_mm_ou_X:idade_ms:VALID|STALE|INVALID:ACTIVE|IDLE`.
+`STALE` mantém a última distância; `X` aparece só quando a medida é inválida.
 
 ## LED (`s3zero_host`)
 
