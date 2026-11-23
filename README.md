@@ -14,7 +14,7 @@ ESP32-S3 no papel de host USB.
 |---|---|---|
 | `s3zero_host` | **Host USB**: enumera o FM1 e envia MIDI | `src/host/` |
 | `s3zero_router` | **Host USB + roteador**: vários aparelhos MIDI no hub, o que um envia os outros recebem | `src/router/` + `src/common/` |
-| `s3zero` | Dispositivo USB MIDI (aparece como teclado no PC) | `src/device/` |
+| `s3zero_device` | Dispositivo USB MIDI (aparece como teclado no PC, celular ou no `s3zero_router`) | `src/device/` |
 | `serial_bridge` | Ferramenta de desenvolvimento: adaptador USB-serial, para ler o log do `s3zero_host` | `src/serial_bridge/` |
 | `native` | Testes da lógica no PC, sem hardware | `test/` |
 
@@ -98,7 +98,7 @@ aparelhos MIDI no hub (teclado, pads, knobs):
   - o ESP32-S3 tem **8 canais de hardware USB para tudo** (hubs e aparelhos
     que não são MIDI inclusive). Quanto cada item ocupa não foi medido;
   - **prefira um hub simples.** Resultados com FM1 + um segundo aparelho MIDI
-    (uma S3-Zero com o perfil `s3zero`):
+    (uma S3-Zero com o perfil `s3zero_device`):
 
     | Hub | Resultado |
     |---|---|
