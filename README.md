@@ -94,12 +94,19 @@ aparelhos MIDI no hub (teclado, pads, knobs):
   - canal forçado para 1, o canal de notas padrão do FM1. Mude com
     `-DROUTER_FORCE_CHANNEL=N`, ou use `0` para manter o canal original.
 - **Limites:**
-  - até 4 aparelhos MIDI;
-  - o ESP32-S3 tem **8 canais de hardware USB para tudo**. Pelo que entendo
-    da alocação do IDF (não medido aqui), cada aparelho, hubs inclusive, usa 1
-    canal para o controle, e cada endpoint MIDI usa mais 1. Um hub
-    simples deixa mais canais livres que um dock com placa de rede. Se faltar
-    canal, o log mostra `falha ao abrir interface`.
+  - o código aceita até 4 aparelhos MIDI, mas o hardware limita antes;
+  - o ESP32-S3 tem **8 canais de hardware USB para tudo** (hubs e aparelhos
+    que não são MIDI inclusive). Quanto cada item ocupa não foi medido;
+  - **prefira um hub simples.** Resultados com FM1 + um segundo aparelho MIDI
+    (uma S3-Zero com o perfil `s3zero`):
+
+    | Hub | Resultado |
+    |---|---|
+    | Dock com 2 chips de hub e placa de rede | ✘ só o primeiro aparelho MIDI abre |
+    | Hub simples (1 hub) com porta de rede | ✔ os dois abrem e o roteamento funciona |
+
+  - Se um aparelho não abrir, o log pode mostrar `falha ao abrir interface`,
+    ou o aparelho nem chega a aparecer no `[enum]`.
 - **Loop:** se dois aparelhos reenviam o que recebem (MIDI thru), as mensagens
   podem circular entre eles.
 
