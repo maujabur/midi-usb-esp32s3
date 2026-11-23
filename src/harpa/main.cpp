@@ -1,4 +1,7 @@
 #include <Arduino.h>
+// O LDF so ve bibliotecas incluidas direto pelos .cpp (usb_role.h as usa)
+#include <USB.h>
+#include <USBMIDI.h>
 #include <Wire.h>
 #include "button_fsm.h"
 #include "harpa_config.h"
@@ -6,11 +9,14 @@
 #include "lidar.h"
 #include "note_sequence.h"
 #include "status_led.h"
-#include "usb_host_midi.h"
+#include "usb_role.h"
 
-// Harpa laser: SENSOR_COUNT VL53L1X no mesmo I2C, cada um como uma corda.
-// PRESSED -> Note On, RELEASED -> Note Off, enviados por USB host ao FM1.
-// Serial (115200) sai pela UART0, como no perfil s3zero_host.
+// Harpa laser: SENSOR_COUNT sensores de distancia no mesmo I2C, cada um uma
+// corda. PRESSED -> Note On, RELEASED -> Note Off.
+// A saida USB e escolhida no boot por uma ponte de solda nos pads
+// MODE_PIN_OUT/MODE_PIN_IN (GPIO42/45): sem ponte = HOST (toca no FM1), com
+// ponte = DEVICE (aparece como teclado MIDI "Harpa MIDI").
+// Serial (115200) sai pela UART0.
 // O botao BOOT toca a sequencia de teste (como nos outros perfis), mesmo que
 // nenhum sensor tenha iniciado.
 //
@@ -23,17 +29,16 @@ constexpr uint32_t TELEMETRY_PERIOD_MS = 100;
 #define BOOT_BUTTON_PIN 0
 #endif
 
-UsbHostMidiOut midiOut;
+UsbRole usb;
 LidarArray lidars;
 HarpaController harpa;
 ButtonFsm button(20);
-SequencePlayer player(midiOut, TEST_SEQUENCE, TEST_SEQUENCE_LEN, MIDI_CHANNEL, NOTE_VELOCITY);
-static bool hostOk = false;
+SequencePlayer player(usb, TEST_SEQUENCE, TEST_SEQUENCE_LEN, MIDI_CHANNEL, NOTE_VELOCITY);
 
 // LED RGB onboard (ver s3zero_host): magenta = host USB nao iniciou, azul =
-// nenhum dispositivo, amarelo = dispositivo sem MIDI, verde = FM1 pronto e
-// todos os sensores no ar, ciano = FM1 pronto mas faltam sensores,
-// branco = alguma corda ou o botao tocando.
+// sem enlace USB, amarelo = aparelho sem MIDI (host) ou barramento suspenso
+// (device, piscando), verde = MIDI pronto e todos os sensores no ar, ciano =
+// MIDI pronto mas faltam sensores, branco = alguma corda ou o botao tocando.
 static void setLed(uint8_t r, uint8_t g, uint8_t b) {
   const LedRgb c = status_led::color(r, g, b);
   rgbLedWrite(RGB_BUILTIN, c.g, c.r, c.b);
@@ -41,12 +46,18 @@ static void setLed(uint8_t r, uint8_t g, uint8_t b) {
 
 static void updateLed(bool anyActive) {
   static uint8_t last = 0xFF;
-  const uint8_t state = !hostOk                                  ? 5
-                        : anyActive                              ? 3
-                        : midiOut.connected()
-                            ? (lidars.availableCount() == SENSOR_COUNT ? 2 : 6)
-                        : midiOut.deviceSeen()                   ? 4
-                                                                 : 1;
+  uint8_t state;
+  if (anyActive) {
+    state = 3;
+  } else {
+    switch (usb.link()) {
+      case UsbRole::Link::HostFailed: state = 5; break;
+      case UsbRole::Link::NoMidi: state = 4; break;
+      case UsbRole::Link::Ready: state = lidars.availableCount() == SENSOR_COUNT ? 2 : 6; break;
+      case UsbRole::Link::Suspended: state = (millis() / 500) % 2 ? 4 : 7; break;
+      default: state = 1; break;
+    }
+  }
   if (state == last) return;
   last = state;
   switch (state) {
@@ -55,6 +66,7 @@ static void updateLed(bool anyActive) {
     case 4: setLed(100, 75, 0); break;
     case 5: setLed(100, 0, 100); break;
     case 6: setLed(0, 100, 100); break;
+    case 7: setLed(0, 0, 0); break;
     default: setLed(100, 100, 100); break;
   }
 }
@@ -83,12 +95,17 @@ static void printTelemetry(const HarpaFrame &frame, uint32_t nowMs) {
 void setup() {
   setLed(0, 0, 100);
   Serial.begin(115200);
-  delay(500);
-  Serial.println("\n[harpa] boot");
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);  // BOOT: nivel baixo = pressionado
-  hostOk = midiOut.begin();
-  Serial.println(hostOk ? "[harpa] host USB iniciado, aguardando dispositivos"
-                        : "[harpa] falha ao iniciar o host USB");
+
+  usb.begin(MODE_PIN_OUT, MODE_PIN_IN);
+  const bool device = usb.mode() == UsbRole::Mode::Device;
+  // Mostra o modo escolhido: ciano = device, laranja = host.
+  if (device) setLed(0, 100, 100);
+  else setLed(100, 35, 0);
+  delay(700);
+  setLed(0, 0, 100);
+  Serial.printf("\n[harpa] boot, ponte %s -> modo %s%s\n", device ? "SIM" : "NAO",
+                device ? "DEVICE" : "HOST", usb.started() ? "" : " (falha ao iniciar o USB)");
 
   const uint8_t available = lidars.begin(Wire, millis());
   Serial.printf("Lidars available: %u/%u\n", (unsigned)available, (unsigned)SENSOR_COUNT);
@@ -106,7 +123,7 @@ void loop() {
   lidars.service(nowMs, harpa.activeMask() == 0 && !player.active());
   const HarpaFrame frame = harpa.update(lidars.readings(), nowMs);
   if (frame.pressedMask | frame.releasedMask) {
-    dispatchMidi(frame, midiOut);
+    dispatchMidi(frame, usb);
     printTransitions(frame);
   }
 #if HARPA_TELEMETRY

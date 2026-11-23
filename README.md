@@ -15,7 +15,8 @@ ESP32-S3 no papel de host USB.
 | `s3zero_host` | **Host USB**: enumera o FM1 e envia MIDI | `src/host/` |
 | `s3zero_router` | **Host USB + roteador**: vários aparelhos MIDI no hub, o que um envia os outros recebem | `src/router/` + `src/common/` |
 | `s3zero_device` | Dispositivo USB MIDI (aparece como teclado no PC, celular ou no `s3zero_router`) | `src/device/` |
-| `s3zero_host_harpa_vl53l1x` | **Host USB + harpa laser**: 10 sensores VL53L1X, cada um uma corda que toca no FM1 | `src/harpa/` + `lib/harpa/` |
+| `s3zero_harpa_vl53l1x` / `s3zero_harpa_vl53l0x` | **Harpa laser**: 10 sensores (um por corda), host (toca no FM1) ou device (teclado MIDI) escolhido no boot por uma ponte de solda | `src/harpa/` + `lib/harpa/` + `src/role/` |
+| `s3zero_modetest` | Teste da escolha host/device (ponte em GPIO5/6), sem sensores | `src/modetest/` |
 | `serial_bridge` | Ferramenta de desenvolvimento: adaptador USB-serial, para ler o log do `s3zero_host` | `src/serial_bridge/` |
 | `native` | Testes da lógica no PC, sem hardware | `test/` |
 
@@ -24,7 +25,7 @@ A lógica comum (debounce do botão, sequência de notas e a interface
 
 ```
 pio run -e s3zero_host -t upload
-pio test -e native
+pio test -e native -e native_l0x
 ```
 
 Depois do primeiro upload do `s3zero_host`, a porta USB passa a ser host e o PC
@@ -67,22 +68,44 @@ apresente como host/fonte no USB-C.
   multímetro. Com o FM1 conectado e se anunciando, D+ fica perto de 3 V e o CC
   ativo perto de 0,42 V.
 
-## Harpa laser (`s3zero_host_harpa_vl53l1x`)
+## Harpa laser (`s3zero_harpa_vl53l1x` e `s3zero_harpa_vl53l0x`)
 
-Ainda não testado no hardware. Compila e os testes da lógica passam no PC.
+Cada sensor de distância é uma corda: distância abaixo do `trigger` envia
+Note On, acima do `release` envia Note Off. Há um perfil por tipo de sensor
+(a placa montada tem um só tipo).
 
-Cada sensor VL53L1X é uma corda: distância abaixo do `trigger` envia Note On,
-acima do `release` envia Note Off. A saída é USB host para o FM1, como no
-`s3zero_host`. Tudo que se edita fica em **`lib/harpa/harpa_config.h`**, e
-erros de configuração quebram a compilação:
+**Estado dos testes:** a lógica passa nos testes do PC para os dois sensores.
+No hardware, só foi validado o lado USB (host com o FM1 e a escolha
+host/device pela ponte, via `s3zero_modetest`). A leitura dos sensores, nos
+dois tipos, ainda não foi testada com sensores ligados.
+
+**Host ou device, no boot:** o mesmo binário serve aos dois papéis. Uma ponte
+de solda entre os pads vizinhos **GPIO42 e GPIO45** (lado de baixo) decide, e
+só a pilha USB escolhida é iniciada:
+
+| Ponte 42–45 | Modo |
+|---|---|
+| sem ponte | **Host**: toca no FM1, como o `s3zero_host` |
+| com ponte | **Device**: aparece como teclado MIDI "Harpa MIDI" |
+
+A ponte só é lida no boot (mude e aperte RESET). No boot o LED mostra o modo
+escolhido por 0,7 s: **ciano** = device, **laranja** = host. O mesmo mecanismo,
+em GPIO5 e GPIO6, é o `s3zero_modetest`: o botão BOOT toca a sequência de teste
+nos dois modos e dá para validar sem sensores.
+
+Tudo que se edita fica em **`lib/harpa/harpa_config.h`**, e erros de
+configuração quebram a compilação:
 
 - `SENSOR_CONFIGS`: uma linha por corda (XSHUT, endereço I2C, ROI, trigger,
-  release). O número de cordas é o tamanho da tabela (máximo 16).
+  release). O número de cordas é o tamanho da tabela (máximo 16). Trigger e
+  release padrão: 800/850 mm no VL53L1X, 600/650 mm no VL53L0X (valor do
+  projeto antigo; ajuste na calibração). O ROI só vale para o VL53L1X.
 - Escala: `ROOT_NOTE` e `SCALE_INTERVALS`. O padrão é Rendez-Vous II
   (`0 5 7 8 10 11 12 14 15 17 19 20`) a partir de C3 (nota 48); só os primeiros
   intervalos, até o número de cordas, são usados.
 - Validações: pino ou endereço repetido, 0x29 como endereço final, GPIO fora do
-  que a S3-Zero oferece, ROI inválida, release ≤ trigger, escala curta demais.
+  que a S3-Zero oferece, XSHUT igual a um pino do I2C ou da ponte, ROI
+  inválida, release ≤ trigger, escala curta demais, sensor não definido.
 
 **Ligação** (diagrama em `images/ESP32-S3-Zero-Pinout.png`): SDA = GPIO1,
 SCL = GPIO2 (400 kHz), XSHUT nos GPIO 4 a 13, nessa ordem, com endereços 0x30
@@ -97,7 +120,8 @@ perfis, mesmo que nenhum sensor tenha iniciado. O LED segue as cores do
 sensores (verde só com todos no ar). Branco = corda ou botão tocando.
 
 **Latência:** cada volta do loop lê só os sensores que têm amostra nova (sem
-nunca esperar por medição) e começa a consultar cada um poucos ms antes do fim
+nunca esperar por medição; no VL53L0X, que só tem leitura bloqueante na
+biblioteca, o registrador de dado pronto é consultado antes) e começa a consultar cada um poucos ms antes do fim
 do período de 20 ms. A distância fica guardada no cache de cada corda para o
 uso futuro como expressão.
 

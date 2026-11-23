@@ -13,6 +13,11 @@ struct Reading {
   bool valid = false;  // a ultima medida foi utilizavel (sem timeout, range valido)
 };
 
+// VL53L0X (lib Pololu): 65535 = timeout. Sem alvo, o sensor devolve valores
+// de fora de alcance (~8190), que sao o estado normal de uma corda solta e
+// por isso contam como leitura valida (apenas longe).
+inline bool vl53l0xRangeValid(uint16_t mm, bool timedOut) { return !timedOut && mm != 65535; }
+
 enum class CacheState : uint8_t { Valid, Stale, Invalid };
 
 // Unica definicao do estado do cache, usada pelo controlador e pela telemetria.

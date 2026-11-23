@@ -111,23 +111,23 @@ void test_press_and_release_with_hysteresis() {
   HarpaController c;
   Reading r[SENSOR_COUNT];
   fill(r, 2000, 100);
-  TEST_ASSERT_EQUAL(0, c.update(r, 100).pressedMask);
+  TEST_ASSERT_EQUAL(0, c.update(r, 100).pressedMask);  // 2000 mm, longe
 
-  r[3] = Reading{700, 110, true};  // < trigger (800)
+  r[3] = Reading{(uint16_t)(TRIGGER_MM - 100), 110, true};  // < trigger
   HarpaFrame f = c.update(r, 110);
   TEST_ASSERT_EQUAL_HEX16(1u << 3, f.pressedMask);
   TEST_ASSERT_EQUAL_HEX16(1u << 3, f.activeMask);
 
-  r[3] = Reading{700, 120, true};  // continua: nenhum evento novo
+  r[3] = Reading{(uint16_t)(TRIGGER_MM - 100), 120, true};  // continua: nenhum evento novo
   f = c.update(r, 120);
   TEST_ASSERT_EQUAL(0, f.pressedMask | f.releasedMask);
 
-  r[3] = Reading{830, 130, true};  // entre trigger e release: segura
+  r[3] = Reading{(uint16_t)((TRIGGER_MM + RELEASE_MM) / 2), 130, true};  // entre os dois: segura
   f = c.update(r, 130);
   TEST_ASSERT_EQUAL(0, f.pressedMask | f.releasedMask);
   TEST_ASSERT_EQUAL_HEX16(1u << 3, f.activeMask);
 
-  r[3] = Reading{900, 140, true};  // > release
+  r[3] = Reading{(uint16_t)(RELEASE_MM + 50), 140, true};  // > release
   f = c.update(r, 140);
   TEST_ASSERT_EQUAL_HEX16(1u << 3, f.releasedMask);
   TEST_ASSERT_EQUAL(0, f.activeMask);
@@ -137,7 +137,7 @@ void test_stale_or_invalid_releases_note() {
   HarpaController c;
   Reading r[SENSOR_COUNT];
   fill(r, 2000, 0);
-  r[0] = Reading{500, 0, true};
+  r[0] = Reading{400, 0, true};
   TEST_ASSERT_EQUAL_HEX16(1, c.update(r, 0).pressedMask);
   // cache envelhece sem amostra nova
   HarpaFrame f = c.update(r, STALE_AFTER_MS + 1);
@@ -146,10 +146,17 @@ void test_stale_or_invalid_releases_note() {
   f = c.update(r, STALE_AFTER_MS + 2);
   TEST_ASSERT_EQUAL(0, f.pressedMask);
   // medida invalida tambem solta
-  r[0] = Reading{500, 200, true};
+  r[0] = Reading{400, 200, true};
   TEST_ASSERT_EQUAL_HEX16(1, c.update(r, 200).pressedMask);
-  r[0] = Reading{500, 210, false};
+  r[0] = Reading{400, 210, false};
   TEST_ASSERT_EQUAL_HEX16(1, c.update(r, 210).releasedMask);
+}
+
+void test_vl53l0x_range_validity() {
+  TEST_ASSERT_TRUE(vl53l0xRangeValid(742, false));
+  TEST_ASSERT_TRUE(vl53l0xRangeValid(8190, false));  // sem alvo: valido, so longe
+  TEST_ASSERT_FALSE(vl53l0xRangeValid(65535, false));
+  TEST_ASSERT_FALSE(vl53l0xRangeValid(300, true));   // timeout reportado pela lib
 }
 
 // ---- MIDI -------------------------------------------------------------------
@@ -211,6 +218,7 @@ int main(int, char **) {
   RUN_TEST(test_cache_state);
   RUN_TEST(test_press_and_release_with_hysteresis);
   RUN_TEST(test_stale_or_invalid_releases_note);
+  RUN_TEST(test_vl53l0x_range_validity);
   RUN_TEST(test_dispatch_midi);
   RUN_TEST(test_telemetry_format);
   RUN_TEST(test_telemetry_truncates_safely);

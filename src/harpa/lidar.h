@@ -1,11 +1,25 @@
 #pragma once
-#include <VL53L1X.h>
 #include <Wire.h>
 #include "harpa_config.h"
 #include "harpa_logic.h"
 
-// Um VL53L1X em modo continuo (free-run). service() nunca espera por medida:
-// so le quando o sensor avisa que ha dado novo.
+// O driver vem do perfil: HARPA_SENSOR_VL53L1X ou HARPA_SENSOR_VL53L0X. Cada
+// um tem sua implementacao de begin()/service() (lidar_vl53l1x.cpp e
+// lidar_vl53l0x.cpp); o resto do codigo nao sabe qual e.
+#if defined(HARPA_SENSOR_VL53L0X)
+#include <VL53L0X.h>
+using RangeDriver = VL53L0X;
+#else
+#include <VL53L1X.h>
+using RangeDriver = VL53L1X;
+#endif
+
+// Margem para comecar a consultar o sensor um pouco antes do fim do periodo
+// de medicao, evitando uma leitura I2C de "dado pronto" a cada volta do loop.
+constexpr uint32_t POLL_EARLY_MS = 3;
+
+// Um sensor de distancia em modo continuo (free-run). service() nunca espera
+// por medida: so le quando o sensor avisa que ha dado novo.
 class LidarSensor {
 public:
   void configure(const SensorConfig &config) { config_ = config; }
@@ -22,7 +36,7 @@ public:
 
 private:
   SensorConfig config_{};
-  VL53L1X driver_{};
+  RangeDriver driver_{};
   bool available_ = false;
   uint32_t lastSampleMs_ = 0;
   uint32_t nextPollMs_ = 0;

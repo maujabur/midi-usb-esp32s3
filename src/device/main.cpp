@@ -7,26 +7,12 @@
 #include "midi_out.h"
 #include "note_sequence.h"
 #include "status_led.h"
+#include "usb_device_midi.h"
 
 #ifndef BOOT_BUTTON_PIN
 #define BOOT_BUTTON_PIN 0
 #endif
 static const char *USB_MIDI_NAME = "Harpa MIDI";
-
-// Implementacao USB de IMidiOut.
-class UsbMidiOut : public IMidiOut {
-public:
-  explicit UsbMidiOut(USBMIDI &m) : midi_(m) {}
-  void noteOn(uint8_t note, uint8_t velocity, uint8_t channel) override {
-    midi_.noteOn(note, velocity, channel);
-  }
-  void noteOff(uint8_t note, uint8_t velocity, uint8_t channel) override {
-    midi_.noteOff(note, velocity, channel);
-  }
-
-private:
-  USBMIDI &midi_;
-};
 
 USBMIDI midi;
 UsbMidiOut midiOut(midi);

@@ -2,15 +2,22 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// Configuracao da harpa laser (perfil s3zero_host_harpa_vl53l1x). TUDO que se edita fica
+// Configuracao da harpa laser (perfis s3zero_harpa_*). TUDO que se edita fica
 // neste arquivo; as validacoes abaixo quebram a compilacao se algo estiver
 // errado (pino ou endereco repetido, ROI invalida, histerese invalida etc.).
 //
-// Pinos pensados para a Waveshare ESP32-S3-Zero rodando como HOST USB:
+// Pinos pensados para a Waveshare ESP32-S3-Zero (host ou device USB):
 //   - GPIO19/20 sao o USB, GPIO43/44 sao a UART0 (log), GPIO21 e o LED,
 //     GPIO0 e o botao BOOT e GPIO3 e pino de strapping: nao usar.
 //   - O I2C fica em GPIO1 (SDA) e GPIO2 (SCL); os XSHUT, em GPIO4..13.
+//   - A ponte que escolhe host/device fica nos pads GPIO42 e GPIO45.
 //   Diagrama dos pinos: images/ESP32-S3-Zero-Pinout.png
+//
+// O tipo de sensor vem do perfil (platformio.ini): -DHARPA_SENSOR_VL53L1X ou
+// -DHARPA_SENSOR_VL53L0X.
+#if defined(HARPA_SENSOR_VL53L1X) == defined(HARPA_SENSOR_VL53L0X)
+#error "Defina exatamente um: HARPA_SENSOR_VL53L1X ou HARPA_SENSOR_VL53L0X"
+#endif
 
 struct RoiConfig {
   uint8_t width;    // 4..16 SPADs
@@ -28,6 +35,19 @@ struct SensorConfig {
 };
 
 // ---------------------------------------------------------------------------
+// Escolha host/device no boot: ponte de solda entre dois pads vizinhos.
+//   sem ponte = HOST USB (toca no FM1); com ponte = DEVICE USB (teclado MIDI).
+// ---------------------------------------------------------------------------
+#ifndef HARPA_MODE_PIN_OUT
+#define HARPA_MODE_PIN_OUT 42
+#endif
+#ifndef HARPA_MODE_PIN_IN
+#define HARPA_MODE_PIN_IN 45
+#endif
+constexpr uint8_t MODE_PIN_OUT = HARPA_MODE_PIN_OUT;
+constexpr uint8_t MODE_PIN_IN = HARPA_MODE_PIN_IN;
+
+// ---------------------------------------------------------------------------
 // Barramento I2C
 // ---------------------------------------------------------------------------
 constexpr uint8_t I2C_SDA_PIN = 1;
@@ -39,18 +59,28 @@ constexpr uint32_t I2C_CLOCK_HZ = 400000;
 // (maximo 16). Para 12 sensores, acrescente 2 linhas e a escala abaixo
 // precisa ter 12 intervalos.
 // ---------------------------------------------------------------------------
-//                       XSHUT  I2C   ROI{w,h,cx,cy}  trigger release
+// ROI so vale para o VL53L1X; o VL53L0X ignora (campo mantido por simetria).
+// Trigger/release padrao: VL53L1X 800/850 mm; VL53L0X 600/650 mm (feixe mais
+// largo e sem ROI; ponto de partida do projeto antigo, ajuste na calibracao).
+#if defined(HARPA_SENSOR_VL53L0X)
+constexpr uint16_t TRIGGER_MM = 600;
+constexpr uint16_t RELEASE_MM = 650;
+#else
+constexpr uint16_t TRIGGER_MM = 800;
+constexpr uint16_t RELEASE_MM = 850;
+#endif
+//                       XSHUT  I2C   ROI{w,h,cx,cy}  trigger     release
 constexpr SensorConfig SENSOR_CONFIGS[] = {
-    {4,  0x30, {4, 4, 8, 7}, 800, 850},
-    {5,  0x31, {4, 4, 8, 7}, 800, 850},
-    {6,  0x32, {4, 4, 8, 7}, 800, 850},
-    {7,  0x33, {4, 4, 8, 7}, 800, 850},
-    {8,  0x34, {4, 4, 8, 7}, 800, 850},
-    {9,  0x35, {4, 4, 8, 7}, 800, 850},
-    {10, 0x36, {4, 4, 8, 7}, 800, 850},
-    {11, 0x37, {4, 4, 8, 7}, 800, 850},
-    {12, 0x38, {4, 4, 8, 7}, 800, 850},
-    {13, 0x39, {4, 4, 8, 7}, 800, 850},
+    {4,  0x30, {4, 4, 8, 7}, TRIGGER_MM, RELEASE_MM},
+    {5,  0x31, {4, 4, 8, 7}, TRIGGER_MM, RELEASE_MM},
+    {6,  0x32, {4, 4, 8, 7}, TRIGGER_MM, RELEASE_MM},
+    {7,  0x33, {4, 4, 8, 7}, TRIGGER_MM, RELEASE_MM},
+    {8,  0x34, {4, 4, 8, 7}, TRIGGER_MM, RELEASE_MM},
+    {9,  0x35, {4, 4, 8, 7}, TRIGGER_MM, RELEASE_MM},
+    {10, 0x36, {4, 4, 8, 7}, TRIGGER_MM, RELEASE_MM},
+    {11, 0x37, {4, 4, 8, 7}, TRIGGER_MM, RELEASE_MM},
+    {12, 0x38, {4, 4, 8, 7}, TRIGGER_MM, RELEASE_MM},
+    {13, 0x39, {4, 4, 8, 7}, TRIGGER_MM, RELEASE_MM},
 };
 constexpr size_t SENSOR_COUNT = sizeof(SENSOR_CONFIGS) / sizeof(SENSOR_CONFIGS[0]);
 
@@ -110,6 +140,7 @@ constexpr uint8_t spadNumber(uint8_t x, uint8_t y) {
 
 constexpr bool sensorIsValid(const SensorConfig &c) {
   return isUsableGpio(c.xshutPin) && c.xshutPin != I2C_SDA_PIN && c.xshutPin != I2C_SCL_PIN &&
+         c.xshutPin != MODE_PIN_OUT && c.xshutPin != MODE_PIN_IN &&
          c.i2cAddress >= 0x08 && c.i2cAddress <= 0x77 && c.i2cAddress != 0x29 &&
          isValidRoi(c.roi) && c.releaseMm > c.triggerMm;
 }
@@ -148,6 +179,10 @@ static_assert(harpa_cfg::scaleIsValid(ROOT_NOTE, SCALE_INTERVALS,
                                       sizeof(SCALE_INTERVALS) / sizeof(SCALE_INTERVALS[0]),
                                       SENSOR_COUNT),
               "SCALE_INTERVALS precisa ter ao menos SENSOR_COUNT intervalos e notas <= 127");
+static_assert(MODE_PIN_OUT != MODE_PIN_IN && MODE_PIN_OUT != I2C_SDA_PIN &&
+                  MODE_PIN_OUT != I2C_SCL_PIN && MODE_PIN_IN != I2C_SDA_PIN &&
+                  MODE_PIN_IN != I2C_SCL_PIN,
+              "Pinos da ponte host/device repetidos ou iguais aos do I2C");
 static_assert(MIDI_CHANNEL >= 1 && MIDI_CHANNEL <= 16, "MIDI_CHANNEL deve ser 1..16");
 static_assert(MEASUREMENT_PERIOD_MS * 1000 >= MEASUREMENT_BUDGET_US,
               "MEASUREMENT_PERIOD_MS deve ser >= MEASUREMENT_BUDGET_US");
