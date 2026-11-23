@@ -7,6 +7,7 @@
 #include "midi_out.h"
 #include "midi_router.h"
 #include "note_sequence.h"
+#include "status_led.h"
 #include "usb_midi_host.h"
 
 #ifndef BOOT_BUTTON_PIN
@@ -46,7 +47,11 @@ SequencePlayer player(localOut, TEST_SEQUENCE, TEST_SEQUENCE_LEN);
 // Branco = nota do botao ativa. Piscada azul clara = nota repassada.
 // O WS2812 do S3-Zero usa GRB, mas a variante declara RGB, entao trocamos
 // aqui, com RGB real nos argumentos.
-static void setLed(uint8_t r, uint8_t g, uint8_t b) { rgbLedWrite(RGB_BUILTIN, g, r, b); }
+// Cores em intensidade relativa (0..100); brilho real em status_led.h.
+static void setLed(uint8_t r, uint8_t g, uint8_t b) {
+  const LedRgb c = status_led::color(r, g, b);
+  rgbLedWrite(RGB_BUILTIN, c.g, c.r, c.b);
+}
 
 static bool hostOk = false;
 static constexpr uint32_t BLINK_MS = 40;
@@ -71,17 +76,17 @@ static void updateLed() {
   if (state == last) return;
   last = state;
   switch (state) {
-    case 1: setLed(0, 0, 40); break;
-    case 2: setLed(0, 40, 0); break;
-    case 3: setLed(40, 40, 40); break;
-    case 4: setLed(40, 30, 0); break;
-    case 5: setLed(40, 0, 40); break;
-    default: setLed(0, 30, 40); break;
+    case 1: setLed(0, 0, 100); break;
+    case 2: setLed(0, 100, 0); break;
+    case 3: setLed(100, 100, 100); break;
+    case 4: setLed(100, 75, 0); break;
+    case 5: setLed(100, 0, 100); break;
+    default: setLed(0, 75, 100); break;
   }
 }
 
 void setup() {
-  setLed(0, 0, 40);
+  setLed(0, 0, 100);
   Serial.begin(115200);
   delay(500);
   Serial.println("\n[router] boot");

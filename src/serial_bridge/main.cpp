@@ -9,6 +9,8 @@
 // Nao ligue 5V/3V3 entre elas: cada placa tem sua alimentacao.
 #include <Arduino.h>
 
+#include "status_led.h"
+
 #ifndef BRIDGE_BAUD
 #define BRIDGE_BAUD 115200
 #endif
@@ -24,7 +26,8 @@ void setup() {
   Serial.begin(BRIDGE_BAUD);
   Serial1.setRxBufferSize(4096);
   Serial1.begin(BRIDGE_BAUD, SERIAL_8N1, BRIDGE_RX_PIN, BRIDGE_TX_PIN);
-  rgbLedWrite(RGB_BUILTIN, 0, 0, 20);  // azul fraco: ponte ligada
+  const LedRgb c = status_led::color(0, 0, 50);  // azul fraco: ponte ligada
+  rgbLedWrite(RGB_BUILTIN, c.g, c.r, c.b);
 }
 
 void loop() {

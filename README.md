@@ -68,6 +68,10 @@ apresente como host/fonte no USB-C.
 
 ## LED (`s3zero_host`)
 
+O brilho vale para todos os perfis e se ajusta no `platformio.ini`, em
+`[esp32s3_zero].led_flags`: `LED_LEVEL` é o brilho máximo (0..255) e
+`LED_GREEN_PCT` reduz só o verde (0..100), que ao olho parece mais forte.
+
 | Cor | Significado |
 |---|---|
 | Magenta | O host USB não iniciou |

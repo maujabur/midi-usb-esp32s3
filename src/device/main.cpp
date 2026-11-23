@@ -6,6 +6,7 @@
 #include "button_fsm.h"
 #include "midi_out.h"
 #include "note_sequence.h"
+#include "status_led.h"
 
 #ifndef BOOT_BUTTON_PIN
 #define BOOT_BUTTON_PIN 0
@@ -38,7 +39,11 @@ SequencePlayer player(midiOut, TEST_SEQUENCE, TEST_SEQUENCE_LEN);
 // Amarelo piscando = USB suspenso (host nao fornece barramento ativo).
 // O WS2812 do S3-Zero usa ordem GRB, mas a variante declara RGB (verde e
 // vermelho saem trocados). Trocamos aqui, com RGB real nos argumentos.
-static void setLed(uint8_t r, uint8_t g, uint8_t b) { rgbLedWrite(RGB_BUILTIN, g, r, b); }
+// Cores em intensidade relativa (0..100); brilho real em status_led.h.
+static void setLed(uint8_t r, uint8_t g, uint8_t b) {
+  const LedRgb c = status_led::color(r, g, b);
+  rgbLedWrite(RGB_BUILTIN, c.g, c.r, c.b);
+}
 
 static void updateLed() {
   static uint8_t last = 0xFF;
@@ -50,16 +55,16 @@ static void updateLed() {
   if (state == last) return;
   last = state;
   switch (state) {
-    case 1: setLed( 0, 0, 40); break;
-    case 2: setLed( 0, 40, 0); break;
-    case 3: setLed( 40, 40, 40); break;
-    case 4: setLed( 40, 30, 0); break;
+    case 1: setLed( 0, 0, 100); break;
+    case 2: setLed( 0, 100, 0); break;
+    case 3: setLed( 100, 100, 100); break;
+    case 4: setLed( 100, 75, 0); break;
     default: setLed( 0, 0, 0); break;
   }
 }
 
 void setup() {
-  setLed( 0, 0, 40);  // acende ja no boot: placa energizada
+  setLed( 0, 0, 100);  // acende ja no boot: placa energizada
   pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);  // BOOT: nivel baixo = pressionado
   midi.begin();
   USB.productName(USB_MIDI_NAME);
