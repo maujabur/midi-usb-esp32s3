@@ -33,7 +33,7 @@ QueueHandle_t g_localQueue = nullptr;  // pacotes de origem local (uint32_t)
 RouterConfig g_cfg;
 
 volatile int g_deviceCount = 0;
-volatile uint32_t g_noteCount = 0;
+volatile uint32_t g_routedCount = 0;
 
 // Eventos chegam no callback; abrir/fechar e feito depois, no loop da task
 // (a lib nao permite isso de forma reentrante).
@@ -95,8 +95,8 @@ void route(int source, const uint8_t raw[4]) {
     enqueue(d, p);
     kick(d);
   }
-  if (source != midi_router::LOCAL_SOURCE && mask && midi_router::isNoteOn(p))
-    g_noteCount = g_noteCount + 1;  // so esta task escreve
+  if (source != midi_router::LOCAL_SOURCE && mask)
+    g_routedCount = g_routedCount + 1;  // so esta task escreve
 }
 
 void outDone(usb_transfer_t *t) {
@@ -336,6 +336,6 @@ void sendLocal(const uint8_t packet[4]) {
 
 int deviceCount() { return g_deviceCount; }
 
-uint32_t routedNoteCount() { return g_noteCount; }
+uint32_t routedPacketCount() { return g_routedCount; }
 
 }  // namespace usb_midi_host

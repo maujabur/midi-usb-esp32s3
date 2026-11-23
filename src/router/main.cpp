@@ -44,7 +44,8 @@ SequencePlayer player(localOut, TEST_SEQUENCE, TEST_SEQUENCE_LEN);
 // LED RGB onboard (WS2812, GPIO21 no S3-Zero).
 // Magenta = host USB nao iniciou. Azul = nenhum aparelho MIDI.
 // Amarelo = um aparelho MIDI (nada para rotear ainda). Verde = dois ou mais.
-// Branco = nota do botao ativa. Piscada azul clara = nota repassada.
+// Branco = nota do botao ativa. Vermelho = roteando: aceso enquanto chegam
+// mensagens de um aparelho para outro(s), e ate ROUTING_HOLD_MS depois.
 // O WS2812 do S3-Zero usa GRB, mas a variante declara RGB, entao trocamos
 // aqui, com RGB real nos argumentos.
 // Cores em intensidade relativa (0..100); brilho real em status_led.h.
@@ -54,34 +55,40 @@ static void setLed(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 static bool hostOk = false;
-static constexpr uint32_t BLINK_MS = 40;
+// Tempo que o vermelho fica aceso depois da ultima mensagem roteada. Longo o
+// bastante para ver uma nota isolada; com knobs/acordes fica aceso direto.
+static constexpr uint32_t ROUTING_HOLD_MS = 150;
+
+enum class LedState : uint8_t { None, NoDevice, OneDevice, Ready, Routing, Button, HostFail };
 
 static void updateLed() {
-  static uint8_t last = 0xFF;
-  static uint32_t seenNotes = 0;
-  static uint32_t blinkUntil = 0;
+  static LedState last = LedState::None;
+  static uint32_t seenRouted = 0;
+  static uint32_t routingUntil = 0;
 
-  const uint32_t notes = usb_midi_host::routedNoteCount();
-  if (notes != seenNotes) {
-    seenNotes = notes;
-    blinkUntil = millis() + BLINK_MS;
+  const uint32_t routed = usb_midi_host::routedPacketCount();
+  if (routed != seenRouted) {
+    seenRouted = routed;
+    routingUntil = millis() + ROUTING_HOLD_MS;
   }
+  const bool routing = (int32_t)(routingUntil - millis()) > 0;
   const int count = usb_midi_host::deviceCount();
-  const uint8_t state = !hostOk                               ? 5
-                        : player.active()                     ? 3
-                        : (int32_t)(blinkUntil - millis()) > 0 ? 6
-                        : count >= 2                          ? 2
-                        : count == 1                          ? 4
-                                                              : 1;
+  const LedState state = !hostOk           ? LedState::HostFail
+                         : player.active() ? LedState::Button
+                         : routing         ? LedState::Routing
+                         : count >= 2      ? LedState::Ready
+                         : count == 1      ? LedState::OneDevice
+                                           : LedState::NoDevice;
   if (state == last) return;
   last = state;
   switch (state) {
-    case 1: setLed(0, 0, 100); break;
-    case 2: setLed(0, 100, 0); break;
-    case 3: setLed(100, 100, 100); break;
-    case 4: setLed(100, 75, 0); break;
-    case 5: setLed(100, 0, 100); break;
-    default: setLed(0, 75, 100); break;
+    case LedState::NoDevice: setLed(0, 0, 100); break;     // azul
+    case LedState::OneDevice: setLed(100, 75, 0); break;   // amarelo
+    case LedState::Ready: setLed(0, 100, 0); break;        // verde
+    case LedState::Routing: setLed(100, 0, 0); break;      // vermelho
+    case LedState::Button: setLed(100, 100, 100); break;   // branco
+    case LedState::HostFail: setLed(100, 0, 100); break;   // magenta
+    default: break;
   }
 }
 

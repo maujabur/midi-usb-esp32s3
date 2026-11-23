@@ -28,7 +28,8 @@ void sendLocal(const uint8_t packet[4]);
 // Aparelhos MIDI abertos (hubs e outros aparelhos nao contam).
 int deviceCount();
 
-// Incrementa a cada Note On repassado entre aparelhos (para piscar o LED).
-uint32_t routedNoteCount();
+// Incrementa a cada mensagem repassada de um aparelho para outro(s)
+// (nota, CC, pitch bend...). Usado pelo LED para mostrar o roteamento.
+uint32_t routedPacketCount();
 
 }  // namespace usb_midi_host

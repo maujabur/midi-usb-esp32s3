@@ -108,8 +108,8 @@ aparelhos MIDI no hub (teclado, pads, knobs):
 | Magenta | O host USB não iniciou |
 | Azul | Nenhum aparelho MIDI |
 | Amarelo | Um aparelho MIDI (nada para rotear ainda) |
-| Verde | Dois ou mais, roteando |
-| Piscada azul clara | Nota repassada entre aparelhos |
+| Verde | Dois ou mais, prontos para rotear |
+| Vermelho | Roteando: aceso enquanto chegam mensagens (notas, knobs, pitch bend) de um aparelho para outro, e até 150 ms depois da última |
 | Branco | Nota do botão BOOT tocando |
 
 Com `-DUSB_HOST_DIAG=1`, cada pacote roteado aparece no log como
